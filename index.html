@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Jet Shooting Game</title>
+<style>
+  body {
+    margin: 0;
+    background: radial-gradient(circle at center, #000 0%, #020b18 100%);
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    margin: auto;
+    background: linear-gradient(#020b18, #000);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="400" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ===== 状態 =====
+let gameOver = false;
+let score = 0;
+let bossPhase = 1;
+
+// ===== プレイヤー =====
+const player = { x: 180, y: 520, w: 30, h: 40, life: 3 };
+
+// ===== 弾 =====
+let bullets = [];
+let enemyBullets = [];
+
+// ===== 敵 =====
+let enemies = [];
+let killCount = 0;
+
+// ===== ボス =====
+let boss = null;
+
+// ===== 連射制限 =====
+let canShoot = true;
+const shootInterval = 250;
+
+// ===== 操作 =====
+let targetX = player.x;
+
+// ===== リスタート =====
+function resetGame() {
+  gameOver = false;
+  score = 0;
+  killCount = 0;
+  bossPhase = 1;
+  bullets = [];
+  enemyBullets = [];
+  enemies = [];
+  boss = null;
+  player.life = 3;
+  player.x = 180;
+}
+
+// ===== 入力 =====
+canvas.addEventListener("touchmove", e => {
+  targetX = e.touches[0].clientX - canvas.offsetLeft;
+});
+document.addEventListener("mousemove", e => {
+  targetX = e.clientX - canvas.offsetLeft;
+});
+document.addEventListener("click", () => {
+  if (gameOver) resetGame();
+  else shoot();
+});
+
+// ===== 発射 =====
+function shoot() {
+  if (gameOver || !canShoot) return;
+  bullets.push({ x: player.x, y: player.y });
+  canShoot = false;
+  setTimeout(() => canShoot = true, shootInterval);
+}
+
+// ===== 敵生成 =====
+function spawnEnemy() {
+  if (gameOver || boss) return;
+  enemies.push({
+    x: Math.random() * (canvas.width - 30),
+    y: -40,
+    speed: 2 + bossPhase * 0.3,
+    cool: 90
+  });
+}
+
+// ===== ボス生成 =====
+function spawnBoss() {
+  boss = {
+    x: 80,
+    y: 40,
+    w: 240,
+    h: 80,
+    hp: 40 + bossPhase * 20,
+    maxHp: 40 + bossPhase * 20,
+    dir: 1,
+    cool: 40 - bossPhase * 5
+  };
+}
+
+// ===== 更新 =====
+function update() {
+  if (gameOver) return;
+
+  // 移動（はみ出し防止）
+  player.x += (targetX - player.x) * 0.25;
+  player.x = Math.max(20, Math.min(canvas.width - 20, player.x));
+
+  // 自機弾
+  bullets.forEach(b => b.y -= 10);
+  bullets = bullets.filter(b => b.y > 0);
+
+  // 敵
+  enemies.forEach(e => {
+    e.y += e.speed;
+    e.cool--;
+    if (e.cool <= 0) {
+      enemyBullets.push({ x: e.x, y: e.y + 20, speed: 4 });
+      e.cool = 120;
+    }
+  });
+  enemies = enemies.filter(e => e.y < canvas.height);
+
+  // 敵弾
+  enemyBullets.forEach(b => b.y += b.speed);
+  enemyBullets = enemyBullets.filter(b => b.y < canvas.height);
+
+  // 敵撃破
+  enemies.forEach((e, ei) => {
+    bullets.forEach((b, bi) => {
+      if (Math.abs(b.x - e.x) < 15 && Math.abs(b.y - e.y) < 20) {
+        enemies.splice(ei, 1);
+        bullets.splice(bi, 1);
+        score += 100;
+        killCount++;
+      }
+    });
+  });
+
+  // 被弾
+  enemyBullets.forEach((b, i) => {
+    if (Math.abs(b.x - player.x) < 15 && Math.abs(b.y - player.y) < 20) {
+      enemyBullets.splice(i, 1);
+      player.life--;
+      if (player.life <= 0) gameOver = true;
+    }
+  });
+
+  // ボス出現
+  if (killCount >= 20 && !boss) spawnBoss();
+
+  // ボス行動
+  if (boss) {
+    boss.x += (3 + bossPhase) * boss.dir;
+    if (boss.x <= 0 || boss.x + boss.w >= canvas.width) boss.dir *= -1;
+
+    boss.cool--;
+    if (boss.cool <= 0) {
+      enemyBullets.push({
+        x: boss.x + boss.w / 2,
+        y: boss.y + boss.h,
+        speed: 5 + bossPhase
+      });
+      boss.cool = 40 - bossPhase * 5;
+    }
+
+    bullets.forEach((b, bi) => {
+      if (
+        b.x > boss.x &&
+        b.x < boss.x + boss.w &&
+        b.y > boss.y &&
+        b.y < boss.y + boss.h
+      ) {
+        bullets.splice(bi, 1);
+        boss.hp--;
+        score += 50;
+        if (boss.hp <= 0) {
+          boss = null;
+          bossPhase++;
+          killCount = 0;
+          score += 1000;
+        }
+      }
+    });
+  }
+}
+
+// ===== 描画 =====
+function drawJet(x, y, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 20);       // 機首
+  ctx.lineTo(x - 12, y + 15);  // 左翼
+  ctx.lineTo(x, y + 10);       // 胴体
+  ctx.lineTo(x + 12, y + 15);  // 右翼
+  ctx.closePath();
+  ctx.fill();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 自機
+  drawJet(player.x, player.y, "#00eaff");
+
+  // 自機弾
+  ctx.fillStyle = "#ffff66";
+  bullets.forEach(b => ctx.fillRect(b.x - 2, b.y, 4, 10));
+
+  // 敵機
+  enemies.forEach(e => drawJet(e.x, e.y, "#ff4444"));
+
+  // 敵弾
+  ctx.fillStyle = "#ff9933";
+  enemyBullets.forEach(b => ctx.fillRect(b.x - 3, b.y, 6, 12));
+
+  // ボス
+  if (boss) {
+    const g = ctx.createLinearGradient(boss.x, boss.y, boss.x + boss.w, boss.y);
+    g.addColorStop(0, "#8000ff");
+    g.addColorStop(1, "#ffffff");
+    ctx.fillStyle = g;
+    ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+
+    // HPバー
+    ctx.fillStyle = "white";
+    ctx.fillRect(50, 20, 300, 10);
+    ctx.fillStyle = "lime";
+    ctx.fillRect(50, 20, 300 * (boss.hp / boss.maxHp), 10);
+  }
+
+  // UI
+  ctx.fillStyle = "white";
+  ctx.fillText("SCORE: " + score, 10, 20);
+  ctx.fillText("LIFE: " + player.life, 10, 40);
+  ctx.fillText("PHASE: " + bossPhase, 10, 60);
+
+  if (gameOver) {
+    ctx.font = "26px sans-serif";
+    ctx.fillText("GAME OVER", 100, 280);
+    ctx.font = "16px sans-serif";
+    ctx.fillText("クリック / タップでリスタート", 90, 320);
+  }
+}
+
+// ===== ループ =====
+setInterval(() => {
+  update();
+  draw();
+}, 16);
+
+setInterval(spawnEnemy, 1000);
+</script>
+
+</body>
+</html>
+
